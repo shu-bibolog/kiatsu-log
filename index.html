@@ -143,6 +143,15 @@
     <button class="reload" id="reloadBtn">↻ 更新</button>
   </header>
 
+  <!-- 位置情報の確認（毎起動時） -->
+  <div class="panel" id="locAsk">
+    <div style="font-size:13px;line-height:1.6;margin-bottom:12px;">現在地の気圧を表示しますか？<br><span style="font-size:11px;color:var(--soft);">「使う」を選ぶまで位置情報にはアクセスしません</span></div>
+    <div class="field-row" style="margin-bottom:0;">
+      <button class="btn btn-primary" id="locYes" style="flex:1;">現在地を使う</button>
+      <button class="btn btn-ghost" id="locNo" style="flex:1;margin-top:0;">使わない（都庁周辺）</button>
+    </div>
+  </div>
+
   <!-- 今の様子 -->
   <div class="panel">
     <h2>いまの気圧</h2>
@@ -628,11 +637,16 @@ function locateAndLoad(){
           if(name){ locPlace = name; renderLoc(); }
         });
       },
-      () => fallback("位置情報オフ"),
-      { timeout: 6000 }
+      err => {
+        const reason = err.code === 1 ? "位置情報が許可されていません"
+                     : err.code === 3 ? "位置情報の取得がタイムアウトしました"
+                     : "位置情報を取得できませんでした";
+        fallback(reason);
+      },
+      { timeout: 10000, maximumAge: 300000 }
     );
   }else{
-    fallback("");
+    fallback("この環境では位置情報を利用できません");
   }
 }
 
@@ -676,7 +690,10 @@ async function loadAndRender(lat, lon){
 }
 
 /* ================== UIイベント ================== */
-document.getElementById("reloadBtn").addEventListener("click", locateAndLoad);
+document.getElementById("reloadBtn").addEventListener("click", () => {
+  if(useGeo === null) return; // まだ場所を選んでいない
+  startWith(useGeo);
+});
 
 document.getElementById("toggleForm").addEventListener("click", () => {
   document.getElementById("logForm").classList.add("open");
@@ -721,7 +738,26 @@ document.getElementById("saveLog").addEventListener("click", async () => {
   renderLog();
 });
 
-locateAndLoad();
+/* ================== 起動：位置情報はユーザーの選択後にのみアクセス ================== */
+let useGeo = null; // null=未選択 true=現在地 false=既定地点
+
+function startWith(geo){
+  useGeo = geo;
+  document.getElementById("locAsk").style.display = "none";
+  if(geo){
+    locateAndLoad();
+  }else{
+    locPlace = DEFAULT_LOC.name; locNote = ""; locUpdated = "";
+    renderLoc();
+    loadAndRender(DEFAULT_LOC.lat, DEFAULT_LOC.lon);
+  }
+}
+
+document.getElementById("locYes").addEventListener("click", () => startWith(true));
+document.getElementById("locNo").addEventListener("click", () => startWith(false));
+
+document.getElementById("locLabel").textContent = "表示する場所を選んでください";
+document.getElementById("statusLine").textContent = "上の選択肢からはじめてください";
 </script>
 </body>
 </html>
