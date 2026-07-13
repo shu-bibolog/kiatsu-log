@@ -8,7 +8,7 @@
 - 体調記録（気圧と時間帯付き）
 
 ## 使い方
-https://ユーザー名.github.io/kiatsu-log/ をスマホで開き、ホーム画面に追加
+https://shu-bibolog.github.io/kiatsu-log/ をスマホで開き、ホーム画面に追加
 
 ## 気象データについて
 気象データは [Open-Meteo](https://open-meteo.com) から取得しています（CC BY 4.0）
