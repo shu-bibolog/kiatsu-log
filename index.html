@@ -96,6 +96,7 @@
   }
   .badge.warn{background:var(--warn-bg);color:var(--warn);}
   .badge.alert{background:var(--alert-bg);color:var(--alert);}
+  .badge.calm{background:var(--calm-bg);color:var(--calm);}
   .win-item .dir{font-size:13px;flex-shrink:0;width:58px;}
   .win-item .range{font-size:13px;color:var(--soft);font-family:'IBM Plex Mono',monospace;}
   .empty-note{font-size:13px;color:var(--soft);text-align:center;padding:12px 0;}
@@ -164,6 +165,7 @@
     <div class="readout" id="readout">グラフに触れると各時刻の値を表示します</div>
     <svg id="chart" viewBox="0 0 380 214" height="214"></svg>
     <div class="legend">
+      <span><i style="background:var(--calm-bg);border:1px solid var(--calm)"></i>安定域</span>
       <span><i style="background:var(--warn-bg);border:1px solid var(--warn)"></i>注意域</span>
       <span><i style="background:var(--alert-bg);border:1px solid var(--alert)"></i>警戒域</span>
       <span style="color:var(--alert)">↓ 低下</span>
@@ -400,8 +402,19 @@ function renderChart(){
   const plotH = CH.H - CH.padT - CH.padB;
   const yOf = v => CH.padT + (1 - (v - min) / (max - min)) * plotH;
 
-  /* 注意・警戒の背景帯：レベルごとに正確に塗り分け */
+  /* 背景帯：安定域(薄緑)と注意・警戒を塗り分け */
+  const {levels} = D;
   let bands = "";
+  let calmStart = null;
+  for(let i=s;i<=values.length;i++){
+    const stable = i < values.length && levels[i] === 0;
+    if(stable && calmStart === null) calmStart = i;
+    if(!stable && calmStart !== null){
+      bands += '<rect x="'+xOf(calmStart).toFixed(1)+'" y="'+CH.padT+'" width="'
+        +Math.max(2,(xOf(i-1)-xOf(calmStart))).toFixed(1)+'" height="'+plotH+'" fill="var(--calm)" opacity="0.10"/>';
+      calmStart = null;
+    }
+  }
   segments.forEach(g => {
     const x1 = xOf(Math.max(g.s, s)), x2 = xOf(g.e);
     const col = g.level === 2 ? "var(--alert)" : "var(--warn)";
@@ -484,7 +497,7 @@ function attachProbe(svg, yOf){
     const probe = svg.querySelector("#probe");
     if(probe){ probe.setAttribute("x1", xOf(i)); probe.setAttribute("x2", xOf(i)); }
     const lvText = levels[i] === 2 ? "・警戒" + (dirs[i]<0?"（低下）":"（上昇）")
-                 : levels[i] === 1 ? "・注意" + (dirs[i]<0?"（低下）":"（上昇）") : "";
+                 : levels[i] === 1 ? "・注意" + (dirs[i]<0?"（低下）":"（上昇）") : "・安定";
     readout.textContent = fmtPoint(times[i]) + "  " + values[i].toFixed(1) + "hPa  "
       + wx(codes[i]).e + wx(codes[i]).t + lvText;
   };
@@ -554,11 +567,19 @@ async function renderLog(){
   list.innerHTML = entries.slice().reverse().map(e => {
     const d = new Date(e.time);
     const t = (d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+    let zoneBadge = "";
+    if(e.zone !== null && e.zone !== undefined){
+      const cls = e.zone === 2 ? "alert" : e.zone === 1 ? "warn" : "calm";
+      const name = e.zone === 2 ? "警戒" : e.zone === 1 ? "注意" : "安定";
+      const arrow = e.zone > 0 ? (e.zoneDir < 0 ? "↓" : "↑") : "";
+      zoneBadge = '<span class="badge '+cls+'">'+name+arrow+"</span>";
+    }
     return '<div class="log-item">'
       + '<span class="dot" style="background:'+sevColor[e.sev]+'"></span>'
       + '<div class="meta"><div class="t">'+t
       + (e.med ? " ・ 服薬" : "") + (e.pressure ? " ・ "+e.pressure.toFixed(1)+"hPa" : "")
       + '</div><div class="m">'+(e.memo ? escapeHtml(e.memo) : sevLabel[e.sev])+"</div></div>"
+      + zoneBadge
       + '<button class="del" data-del="'+e.id+'">×</button></div>';
   }).join("");
   list.querySelectorAll("[data-del]").forEach(btn => {
@@ -571,17 +592,41 @@ async function renderLog(){
 }
 
 /* ================== 位置取得と初期化 ================== */
+let locPlace = "", locNote = "", locUpdated = "";
+
+function renderLoc(){
+  document.getElementById("locLabel").textContent =
+    locPlace + "の気圧を表示中"
+    + (locNote ? "（" + locNote + "）" : "")
+    + (locUpdated ? " ・ " + locUpdated + "更新" : "");
+}
+
+/* 緯度経度 → 市区町村名（BigDataCloud 無料API・キー不要） */
+async function reverseGeocode(lat, lon){
+  try{
+    const r = await fetch("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude="
+      + lat + "&longitude=" + lon + "&localityLanguage=ja");
+    if(!r.ok) return null;
+    const j = await r.json();
+    return j.city || j.locality || j.principalSubdivision || null;
+  }catch(e){ return null; }
+}
+
 function locateAndLoad(){
-  const label = document.getElementById("locLabel");
   const fallback = msg => {
-    label.textContent = DEFAULT_LOC.name + "の気圧を表示中" + (msg ? "（"+msg+"）" : "");
+    locPlace = DEFAULT_LOC.name; locNote = msg; locUpdated = "";
+    renderLoc();
     loadAndRender(DEFAULT_LOC.lat, DEFAULT_LOC.lon);
   };
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(
       pos => {
-        label.textContent = "現在地の気圧を表示中";
+        locPlace = "現在地"; locNote = ""; locUpdated = "";
+        renderLoc();
         loadAndRender(pos.coords.latitude, pos.coords.longitude);
+        reverseGeocode(pos.coords.latitude, pos.coords.longitude).then(name => {
+          if(name){ locPlace = name; renderLoc(); }
+        });
       },
       () => fallback("位置情報オフ"),
       { timeout: 6000 }
@@ -619,6 +664,10 @@ async function loadAndRender(lat, lon){
     renderChart();
     renderWindows();
     renderLog();
+
+    const now2 = new Date();
+    locUpdated = pad(now2.getHours()) + ":" + pad(now2.getMinutes());
+    renderLoc();
   }catch(e){
     const st = document.getElementById("statusLine");
     st.className = "status alert";
@@ -655,7 +704,9 @@ document.getElementById("saveLog").addEventListener("click", async () => {
     sev: selectedSev,
     med: medFlag,
     memo: document.getElementById("memoInput").value.trim(),
-    pressure: D ? D.values[D.currentIdx] : null
+    pressure: D ? D.values[D.currentIdx] : null,
+    zone: D ? D.levels[D.currentIdx] : null,   // 0安定 1注意 2警戒
+    zoneDir: D ? D.dirs[D.currentIdx] : 0      // -1低下 +1上昇
   };
   const cur = await store.get();
   cur.push(entry);
