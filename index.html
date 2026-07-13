@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="気圧ログ">
+<meta name="theme-color" content="#F0F3F4">
+<title>気圧ログ — 広告なしの気圧予報</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F0F3F4;
+    --panel:#FFFFFF;
+    --edge:#DDE4E7;
+    --ink:#28333D;
+    --soft:#68757F;
+    --line:#3D5A80;       /* 気圧の折れ線 */
+    --calm:#4E8A6C;  --calm-bg:#E9F2EC;
+    --warn:#C0862F;  --warn-bg:#F7EEDD;   /* 注意 */
+    --alert:#BF4B44; --alert-bg:#F8E7E5;  /* 警戒 */
+    --grid:#D7DEE2;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Zen Maru Gothic',sans-serif;
+    min-height:100vh; display:flex; justify-content:center;
+    padding:24px 14px 56px;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .app{width:100%;max-width:430px;}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;}
+  header h1{font-size:24px;font-weight:700;margin:0;letter-spacing:.02em;}
+  header .loc{font-size:12px;color:var(--soft);margin-top:3px;}
+  .reload{
+    background:none;border:1px solid var(--edge);border-radius:10px;
+    font-family:inherit;font-size:12px;color:var(--soft);
+    padding:7px 12px;cursor:pointer;
+  }
+  .reload:active{background:var(--edge);}
+
+  .panel{
+    background:var(--panel);border:1px solid var(--edge);
+    border-radius:18px;padding:18px;margin-bottom:14px;
+  }
+  .panel h2{
+    font-size:12px;font-weight:700;color:var(--soft);
+    letter-spacing:.08em;margin:0 0 12px;
+  }
+
+  /* --- 今の様子 --- */
+  .now-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .now-val{display:flex;align-items:baseline;gap:6px;}
+  .now-val .v{font-size:42px;font-weight:600;font-family:'IBM Plex Mono',monospace;line-height:1;}
+  .now-val .u{font-size:13px;color:var(--soft);}
+  .now-wx{text-align:center;}
+  .now-wx .e{font-size:32px;line-height:1;}
+  .now-wx .t{font-size:11px;color:var(--soft);margin-top:3px;}
+  .trend{font-size:12px;color:var(--soft);margin-top:8px;}
+  .status{
+    margin-top:12px;padding:10px 14px;border-radius:12px;
+    font-size:13px;line-height:1.6;
+  }
+  .status.calm{background:var(--calm-bg);color:var(--calm);}
+  .status.warn{background:var(--warn-bg);color:var(--warn);}
+  .status.alert{background:var(--alert-bg);color:var(--alert);}
+
+  /* --- チャート --- */
+  .readout{
+    font-size:12px;color:var(--soft);min-height:18px;margin-bottom:6px;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  #chart{touch-action:pan-y;display:block;width:100%;}
+  .legend{
+    display:flex;flex-wrap:wrap;gap:10px 14px;font-size:11px;color:var(--soft);margin-top:10px;
+  }
+  .legend span{display:flex;align-items:center;gap:5px;}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block;}
+  .thresholds{font-size:11px;color:var(--soft);line-height:1.7;margin-top:8px;}
+
+  /* --- 変化の予定 --- */
+  .win-list{display:flex;flex-direction:column;gap:8px;}
+  .win-item{
+    display:flex;align-items:center;gap:10px;
+    border:1px solid var(--edge);border-radius:12px;padding:10px 12px;
+  }
+  .badge{
+    font-size:11px;font-weight:700;border-radius:8px;padding:3px 8px;flex-shrink:0;
+  }
+  .badge.warn{background:var(--warn-bg);color:var(--warn);}
+  .badge.alert{background:var(--alert-bg);color:var(--alert);}
+  .win-item .dir{font-size:13px;flex-shrink:0;width:58px;}
+  .win-item .range{font-size:13px;color:var(--soft);font-family:'IBM Plex Mono',monospace;}
+  .empty-note{font-size:13px;color:var(--soft);text-align:center;padding:12px 0;}
+
+  /* --- 体調ノート --- */
+  .log-form{display:none;margin-bottom:12px;}
+  .log-form.open{display:block;}
+  .field-row{display:flex;gap:8px;margin-bottom:10px;}
+  .sev-btn,.med-toggle{
+    flex:1;padding:10px 4px;border-radius:10px;border:1px solid var(--edge);
+    background:#fff;font-family:inherit;font-size:12px;color:var(--soft);
+    cursor:pointer;text-align:center;
+  }
+  .sev-btn.active{background:var(--line);border-color:var(--line);color:#fff;}
+  .med-toggle.active{background:var(--calm);border-color:var(--calm);color:#fff;}
+  textarea.memo{
+    width:100%;border:1px solid var(--edge);border-radius:10px;padding:10px;
+    font-family:inherit;font-size:13px;resize:none;height:52px;margin-bottom:10px;
+  }
+  .btn{
+    width:100%;padding:12px;border-radius:12px;border:none;
+    font-family:inherit;font-weight:700;font-size:14px;cursor:pointer;
+  }
+  .btn-primary{background:var(--ink);color:#fff;}
+  .btn-ghost{background:transparent;color:var(--soft);border:1px solid var(--edge);}
+  .log-list{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
+  .log-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--edge);border-radius:12px;}
+  .log-item .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .log-item .meta{flex:1;min-width:0;}
+  .log-item .t{font-size:11px;color:var(--soft);font-family:'IBM Plex Mono',monospace;}
+  .log-item .m{font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .log-item .del{background:none;border:none;color:var(--soft);font-size:16px;cursor:pointer;padding:2px 6px;}
+
+  footer{text-align:center;font-size:11px;color:var(--soft);margin-top:18px;line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>気圧ログ</h1>
+      <div class="loc" id="locLabel">位置情報を確認中…</div>
+    </div>
+    <button class="reload" id="reloadBtn">↻ 更新</button>
+  </header>
+
+  <!-- 今の様子 -->
+  <div class="panel">
+    <h2>いまの気圧</h2>
+    <div class="now-top">
+      <div>
+        <div class="now-val"><span class="v" id="curVal">--</span><span class="u">hPa</span></div>
+        <div class="trend" id="trendLine">&nbsp;</div>
+      </div>
+      <div class="now-wx">
+        <div class="e" id="curWxIcon">–</div>
+        <div class="t" id="curWxLabel"></div>
+      </div>
+    </div>
+    <div class="status calm" id="statusLine">データを読み込んでいます…</div>
+  </div>
+
+  <!-- 72時間チャート -->
+  <div class="panel">
+    <h2>72時間の気圧と天気</h2>
+    <div class="readout" id="readout">グラフに触れると各時刻の値を表示します</div>
+    <svg id="chart" viewBox="0 0 380 214" height="214"></svg>
+    <div class="legend">
+      <span><i style="background:var(--warn-bg);border:1px solid var(--warn)"></i>注意域</span>
+      <span><i style="background:var(--alert-bg);border:1px solid var(--alert)"></i>警戒域</span>
+      <span style="color:var(--alert)">↓ 低下</span>
+      <span style="color:var(--line)">↑ 上昇</span>
+    </div>
+    <div class="thresholds">
+      注意：3時間で±3hPa以上（または6時間で±5hPa以上）の変化<br>
+      警戒：3時間で±5hPa以上（または6時間で±8hPa以上）の変化
+    </div>
+  </div>
+
+  <!-- 変化の予定 -->
+  <div class="panel">
+    <h2>気圧変化の予定</h2>
+    <div class="win-list" id="winList"><div class="empty-note">読み込み中…</div></div>
+  </div>
+
+  <!-- 体調ノート -->
+  <div class="panel">
+    <h2>体調ノート</h2>
+    <div class="log-form" id="logForm">
+      <div class="field-row">
+        <div class="sev-btn" data-sev="1">かるい</div>
+        <div class="sev-btn" data-sev="2">ふつう</div>
+        <div class="sev-btn" data-sev="3">つらい</div>
+        <div class="sev-btn" data-sev="4">重い</div>
+      </div>
+      <div class="field-row">
+        <div class="med-toggle" id="medToggle">くすりを飲んだ</div>
+      </div>
+      <textarea class="memo" id="memoInput" placeholder="メモ（任意）"></textarea>
+      <button class="btn btn-primary" id="saveLog">記録する</button>
+    </div>
+    <button class="btn btn-ghost" id="toggleForm">＋ 体調を記録する</button>
+    <div class="log-list" id="logList"></div>
+  </div>
+
+  <footer>
+    <a href="https://open-meteo.com/" target="_blank" rel="noopener" style="color:inherit">Weather data by Open-Meteo.com</a>（CC BY 4.0）／海面更正気圧を使用<br>
+    本アプリは体調の目安を示すもので、医学的な診断を行うものではありません。<br>
+    ホーム画面に追加するとアプリのように使えます。
+  </footer>
+</div>
+
+<script>
+/* ================== 設定 ================== */
+const DEFAULT_LOC = { lat: 35.6896, lon: 139.6922, name: "東京都庁周辺" };
+
+/* 変化検知のしきい値（hPa） */
+const TH = { warn3: 3, alert3: 5, warn6: 5, alert6: 8 };
+
+/* WMOコード → 天気 */
+function wx(code){
+  if(code === 0) return {e:"☀️", t:"快晴"};
+  if(code === 1) return {e:"🌤️", t:"晴れ"};
+  if(code === 2) return {e:"⛅", t:"晴れ時々くもり"};
+  if(code === 3) return {e:"☁️", t:"くもり"};
+  if(code === 45 || code === 48) return {e:"🌫️", t:"霧"};
+  if(code >= 51 && code <= 57) return {e:"🌦️", t:"霧雨"};
+  if(code >= 61 && code <= 67) return {e:"🌧️", t:"雨"};
+  if(code >= 71 && code <= 77) return {e:"🌨️", t:"雪"};
+  if(code >= 80 && code <= 82) return {e:"🌧️", t:"にわか雨"};
+  if(code === 85 || code === 86) return {e:"🌨️", t:"にわか雪"};
+  if(code >= 95) return {e:"⛈️", t:"雷雨"};
+  return {e:"☁️", t:"—"};
+}
+
+/* ================== 状態 ================== */
+let D = null; // {times, values, codes, levels, dirs, windows, displayStart, currentIdx}
+let selectedSev = null;
+let medFlag = false;
+
+/* ================== データ取得 ================== */
+async function fetchForecast(lat, lon){
+  // pressure_msl（海面更正気圧）を使用：頭痛系アプリの標準で、標高に左右されず比較できる
+  const url = "https://api.open-meteo.com/v1/forecast"
+    + "?latitude=" + lat + "&longitude=" + lon
+    + "&hourly=pressure_msl,weather_code&past_days=1&forecast_days=3&timezone=auto";
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("fetch failed");
+  const j = await res.json();
+  return { times: j.hourly.time, values: j.hourly.pressure_msl, codes: j.hourly.weather_code };
+}
+
+/* ================== 変化の検知 ================== */
+/* しきい値を超える変化が見つかったら、その変化が起きている
+   区間全体（3時間判定なら i-3〜i、6時間判定なら i-6〜i）に色を付ける */
+function analyze(values){
+  const n = values.length;
+  const levels = new Array(n).fill(0);  // 0安定 1注意 2警戒
+  const dirs   = new Array(n).fill(0);  // -1低下 +1上昇
+
+  function mark(from, to, lv, dir){
+    from = Math.max(0, from);
+    // 区間の両端で「その方向にほぼ動いていない時間」を削る
+    // （変化が実際に起きている時間帯だけに色を付けるため）
+    const MOVE = 0.2; // hPa/時 未満は「動いていない」とみなす
+    while(from < to && dir * (values[from+1] - values[from]) < MOVE) from++;
+    while(to > from && dir * (values[to] - values[to-1]) < MOVE) to--;
+    if(from >= to) return;
+    for(let j=from; j<=to; j++){
+      if(lv > levels[j]){ levels[j] = lv; dirs[j] = dir; }
+      else if(lv === levels[j] && dirs[j] === 0){ dirs[j] = dir; }
+    }
+  }
+  for(let i=3;i<n;i++){
+    const d3 = values[i]-values[i-3];
+    if(Math.abs(d3) >= TH.alert3)      mark(i-3, i, 2, Math.sign(d3));
+    else if(Math.abs(d3) >= TH.warn3)  mark(i-3, i, 1, Math.sign(d3));
+  }
+  for(let i=6;i<n;i++){
+    const d6 = values[i]-values[i-6];
+    if(Math.abs(d6) >= TH.alert6)      mark(i-6, i, 2, Math.sign(d6));
+    else if(Math.abs(d6) >= TH.warn6)  mark(i-6, i, 1, Math.sign(d6));
+  }
+  return {levels, dirs};
+}
+
+/* チャートの帯用：レベルと方向が同じ連続区間に分割（注意と警戒を正確に塗り分ける） */
+function buildSegments(levels, dirs, from){
+  const segs = [];
+  let cur = null;
+  for(let i=from;i<levels.length;i++){
+    if(levels[i] > 0){
+      if(cur && cur.level === levels[i] && cur.dir === dirs[i] && cur.e === i-1){
+        cur.e = i;
+      }else{
+        if(cur) segs.push(cur);
+        cur = {s:i, e:i, level:levels[i], dir:dirs[i]};
+      }
+    }else if(cur){
+      segs.push(cur); cur = null;
+    }
+  }
+  if(cur) segs.push(cur);
+  return segs;
+}
+
+/* 連続する同方向の時間を「窓」にまとめる（表示範囲内のみ） */
+function buildWindows(levels, dirs, from){
+  const wins = [];
+  let cur = null;
+  for(let i=from;i<levels.length;i++){
+    if(levels[i] > 0){
+      if(cur && cur.dir === dirs[i] && cur.e === i-1){
+        cur.e = i; cur.level = Math.max(cur.level, levels[i]);
+      }else{
+        if(cur) wins.push(cur);
+        cur = {s:i, e:i, level:levels[i], dir:dirs[i]};
+      }
+    }else if(cur){
+      wins.push(cur); cur = null;
+    }
+  }
+  if(cur) wins.push(cur);
+  return wins;
+}
+
+/* ================== 日付ユーティリティ ================== */
+function pad(n){ return n.toString().padStart(2,"0"); }
+function localDateStr(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function hourOf(iso){ return new Date(iso).getHours(); }
+function dayName(iso){
+  const d = new Date(iso);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const target = new Date(d); target.setHours(0,0,0,0);
+  const diff = Math.round((target - today) / 86400000);
+  if(diff === 0) return "今日";
+  if(diff === 1) return "明日";
+  if(diff === 2) return "あさって";
+  return (d.getMonth()+1)+"/"+d.getDate();
+}
+function fmtPoint(iso){
+  return dayName(iso) + " " + hourOf(iso) + "時";
+}
+
+/* ================== 描画：いまの気圧 ================== */
+function renderNow(){
+  const {values, codes, times, levels, dirs, currentIdx: c, windows} = D;
+  const v = values[c];
+  document.getElementById("curVal").textContent = v.toFixed(1);
+
+  const w = wx(codes[c]);
+  document.getElementById("curWxIcon").textContent = w.e;
+  document.getElementById("curWxLabel").textContent = w.t;
+
+  const d3 = v - values[Math.max(0, c-3)];
+  const arrow = d3 <= -1 ? "↓" : (d3 >= 1 ? "↑" : "→");
+  document.getElementById("trendLine").innerHTML =
+    '<span class="mono">' + arrow + " 3時間で " + (d3>=0?"+":"") + d3.toFixed(1) + " hPa</span>";
+
+  const st = document.getElementById("statusLine");
+  const lv = levels[c], dir = dirs[c];
+  if(lv === 2){
+    st.className = "status alert";
+    st.textContent = dir < 0
+      ? "気圧が急降下しています。頭痛などの症状が出やすいタイミングです。"
+      : "気圧が急上昇しています。低下時と同様に体調を崩す人もいるので気をつけて。";
+  }else if(lv === 1){
+    st.className = "status warn";
+    st.textContent = dir < 0
+      ? "気圧がゆるやかに下がっています。体調の変化に注意してください。"
+      : "気圧がゆるやかに上がっています。体調の変化に注意してください。";
+  }else{
+    // 24時間以内に始まる窓を探す
+    const next = windows.find(win => win.s > c && win.s <= c + 24);
+    if(next){
+      st.className = next.level === 2 ? "status alert" : "status warn";
+      st.textContent = fmtPoint(times[next.s]) + "ごろから気圧"
+        + (next.dir < 0 ? "低下" : "上昇") + "の"
+        + (next.level === 2 ? "警戒域" : "注意域") + "に入る見込みです。";
+    }else{
+      st.className = "status calm";
+      st.textContent = "向こう24時間、大きな気圧変化はない見込みです。";
+    }
+  }
+}
+
+/* ================== 描画：チャート ================== */
+const CH = { W:380, H:214, padL:32, padR:8, padT:34, padB:38 };
+
+function xOf(i){
+  const {displayStart:s} = D;
+  const n = D.values.length - 1;
+  return CH.padL + ((i - s) / (n - s)) * (CH.W - CH.padL - CH.padR);
+}
+
+function renderChart(){
+  const svg = document.getElementById("chart");
+  const {values, times, codes, segments, windows, displayStart:s, currentIdx:c} = D;
+  const shown = values.slice(s);
+  const min = Math.min(...shown) - 2;
+  const max = Math.max(...shown) + 2;
+  const plotH = CH.H - CH.padT - CH.padB;
+  const yOf = v => CH.padT + (1 - (v - min) / (max - min)) * plotH;
+
+  /* 注意・警戒の背景帯：レベルごとに正確に塗り分け */
+  let bands = "";
+  segments.forEach(g => {
+    const x1 = xOf(Math.max(g.s, s)), x2 = xOf(g.e);
+    const col = g.level === 2 ? "var(--alert)" : "var(--warn)";
+    bands += '<rect x="'+x1.toFixed(1)+'" y="'+CH.padT+'" width="'+Math.max(2,(x2-x1)).toFixed(1)
+      +'" height="'+plotH+'" fill="'+col+'" opacity="'+(g.level===2?0.18:0.14)+'"/>';
+  });
+
+  /* 方向の矢印はひとまとまり（窓）ごとに1つ */
+  let bandArrows = "";
+  windows.forEach(w => {
+    const cx = (xOf(Math.max(w.s, s)) + xOf(w.e)) / 2;
+    const col = w.level === 2 ? "var(--alert)" : "var(--warn)";
+    bandArrows += '<text x="'+cx.toFixed(1)+'" y="'+(CH.padT+12)+'" font-size="11" text-anchor="middle" fill="'
+      +col+'" font-weight="bold">'+(w.dir<0?"↓":"↑")+"</text>";
+  });
+
+  /* 目盛り */
+  let grid = "", ylabels = "";
+  const step = (max-min) > 24 ? 10 : 5;
+  for(let p = Math.ceil(min/step)*step; p <= max; p += step){
+    const yy = yOf(p).toFixed(1);
+    grid += '<line x1="'+CH.padL+'" y1="'+yy+'" x2="'+(CH.W-CH.padR)+'" y2="'+yy+'" stroke="var(--grid)" stroke-width="1"/>';
+    ylabels += '<text x="2" y="'+(+yy+3)+'" font-size="9" fill="var(--soft)" font-family="IBM Plex Mono,monospace">'+p+"</text>";
+  }
+
+  /* 横軸：6時間ごとの時刻ラベル＋日付境界＋日名 */
+  let dayMarks = "";
+  const axisY = CH.padT + plotH;
+  for(let i=s;i<times.length;i++){
+    const h = hourOf(times[i]);
+    if(h === 0 && i > s){
+      const xx = xOf(i).toFixed(1);
+      dayMarks += '<line x1="'+xx+'" y1="'+CH.padT+'" x2="'+xx+'" y2="'+axisY+'" stroke="var(--grid)" stroke-width="1" stroke-dasharray="2,3"/>';
+    }
+    if(h % 6 === 0){
+      const xx = xOf(i).toFixed(1);
+      dayMarks += '<line x1="'+xx+'" y1="'+axisY+'" x2="'+xx+'" y2="'+(axisY+3)+'" stroke="var(--soft)" stroke-width="1"/>';
+      dayMarks += '<text x="'+xx+'" y="'+(axisY+14)+'" font-size="8" fill="var(--soft)" text-anchor="middle" font-family="IBM Plex Mono,monospace">'+h+"時</text>";
+    }
+    if(h === 12){
+      dayMarks += '<text x="'+xOf(i).toFixed(1)+'" y="'+(CH.H-5)+'" font-size="10" fill="var(--ink)" text-anchor="middle" font-weight="500">'+dayName(times[i])+"</text>";
+    }
+  }
+
+  /* 天気アイコン（6時間ごと） */
+  let wxRow = "";
+  for(let i=s;i<times.length;i+=6){
+    wxRow += '<text x="'+xOf(i).toFixed(1)+'" y="16" font-size="13" text-anchor="middle">'+wx(codes[i]).e+"</text>";
+  }
+
+  /* 折れ線 */
+  let path = "";
+  for(let i=s;i<values.length;i++){
+    path += (i===s?"M":"L") + xOf(i).toFixed(1) + "," + yOf(values[i]).toFixed(1) + " ";
+  }
+
+  const curX = xOf(c).toFixed(1);
+
+  svg.innerHTML =
+    grid + ylabels + bands + dayMarks +
+    '<path d="'+path+'" fill="none" stroke="var(--line)" stroke-width="2"/>' +
+    bandArrows + wxRow +
+    '<line x1="'+curX+'" y1="'+CH.padT+'" x2="'+curX+'" y2="'+(CH.padT+plotH)+'" stroke="var(--ink)" stroke-width="1.2" stroke-dasharray="3,3"/>' +
+    '<text x="'+curX+'" y="'+(CH.padT-4)+'" font-size="9" fill="var(--ink)" text-anchor="middle">現在</text>' +
+    '<line id="probe" x1="-10" y1="'+CH.padT+'" x2="-10" y2="'+(CH.padT+plotH)+'" stroke="var(--soft)" stroke-width="1"/>';
+
+  attachProbe(svg, yOf);
+}
+
+/* グラフに触れた位置の値を表示 */
+function attachProbe(svg, yOf){
+  const readout = document.getElementById("readout");
+  const {values, times, codes, levels, dirs, displayStart:s} = D;
+  const handler = ev => {
+    const rect = svg.getBoundingClientRect();
+    const px = (ev.clientX - rect.left) / rect.width * CH.W;
+    const n = values.length - 1;
+    let i = Math.round(s + (px - CH.padL) / (CH.W - CH.padL - CH.padR) * (n - s));
+    i = Math.max(s, Math.min(n, i));
+    const probe = svg.querySelector("#probe");
+    if(probe){ probe.setAttribute("x1", xOf(i)); probe.setAttribute("x2", xOf(i)); }
+    const lvText = levels[i] === 2 ? "・警戒" + (dirs[i]<0?"（低下）":"（上昇）")
+                 : levels[i] === 1 ? "・注意" + (dirs[i]<0?"（低下）":"（上昇）") : "";
+    readout.textContent = fmtPoint(times[i]) + "  " + values[i].toFixed(1) + "hPa  "
+      + wx(codes[i]).e + wx(codes[i]).t + lvText;
+  };
+  svg.onpointermove = handler;
+  svg.onpointerdown = handler;
+}
+
+/* ================== 描画：変化の予定 ================== */
+function renderWindows(){
+  const list = document.getElementById("winList");
+  const {times, windows, currentIdx:c} = D;
+  const upcoming = windows.filter(w => w.e >= c);
+  if(upcoming.length === 0){
+    list.innerHTML = '<div class="empty-note">今後72時間、大きな気圧変化の予報はありません 🎐</div>';
+    return;
+  }
+  list.innerHTML = upcoming.map(w => {
+    const badge = w.level === 2
+      ? '<span class="badge alert">警戒</span>'
+      : '<span class="badge warn">注意</span>';
+    const dir = w.dir < 0
+      ? '<span class="dir" style="color:var(--alert)">↓ 低下</span>'
+      : '<span class="dir" style="color:var(--line)">↑ 上昇</span>';
+    const range = fmtPoint(times[w.s]) + "〜" + hourOf(times[w.e]) + "時"
+      + (dayName(times[w.s]) !== dayName(times[w.e]) ? "（"+dayName(times[w.e])+"）" : "");
+    return '<div class="win-item">'+badge+dir+'<span class="range">'+range+"</span></div>";
+  }).join("");
+}
+
+/* ================== 保存（Claude内でもWeb配布でも動く） ================== */
+const LOG_KEY = "kiatsu-log-entries";
+const store = {
+  async get(){
+    try{
+      if(window.storage && window.storage.get){
+        const r = await window.storage.get(LOG_KEY, false);
+        return r ? JSON.parse(r.value) : [];
+      }
+      const r = localStorage.getItem(LOG_KEY);
+      return r ? JSON.parse(r) : [];
+    }catch(e){ return []; }
+  },
+  async set(entries){
+    try{
+      if(window.storage && window.storage.set){
+        await window.storage.set(LOG_KEY, JSON.stringify(entries), false);
+      }else{
+        localStorage.setItem(LOG_KEY, JSON.stringify(entries));
+      }
+    }catch(e){ console.error("save failed", e); }
+  }
+};
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+}
+
+async function renderLog(){
+  const list = document.getElementById("logList");
+  const entries = await store.get();
+  if(entries.length === 0){
+    list.innerHTML = '<div class="empty-note">まだ記録がありません</div>';
+    return;
+  }
+  const sevColor = {1:"var(--calm)",2:"var(--warn)",3:"var(--warn)",4:"var(--alert)"};
+  const sevLabel = {1:"かるい",2:"ふつう",3:"つらい",4:"重い"};
+  list.innerHTML = entries.slice().reverse().map(e => {
+    const d = new Date(e.time);
+    const t = (d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+    return '<div class="log-item">'
+      + '<span class="dot" style="background:'+sevColor[e.sev]+'"></span>'
+      + '<div class="meta"><div class="t">'+t
+      + (e.med ? " ・ 服薬" : "") + (e.pressure ? " ・ "+e.pressure.toFixed(1)+"hPa" : "")
+      + '</div><div class="m">'+(e.memo ? escapeHtml(e.memo) : sevLabel[e.sev])+"</div></div>"
+      + '<button class="del" data-del="'+e.id+'">×</button></div>';
+  }).join("");
+  list.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const cur = await store.get();
+      await store.set(cur.filter(e => e.id !== btn.getAttribute("data-del")));
+      renderLog();
+    });
+  });
+}
+
+/* ================== 位置取得と初期化 ================== */
+function locateAndLoad(){
+  const label = document.getElementById("locLabel");
+  const fallback = msg => {
+    label.textContent = DEFAULT_LOC.name + "の気圧を表示中" + (msg ? "（"+msg+"）" : "");
+    loadAndRender(DEFAULT_LOC.lat, DEFAULT_LOC.lon);
+  };
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        label.textContent = "現在地の気圧を表示中";
+        loadAndRender(pos.coords.latitude, pos.coords.longitude);
+      },
+      () => fallback("位置情報オフ"),
+      { timeout: 6000 }
+    );
+  }else{
+    fallback("");
+  }
+}
+
+async function loadAndRender(lat, lon){
+  try{
+    const raw = await fetchForecast(lat, lon);
+    const {levels, dirs} = analyze(raw.values);
+
+    // 表示開始 = 今日の0時（past_days:1 なので通常 index 24）
+    const todayStr = localDateStr(new Date());
+    let displayStart = raw.times.findIndex(t => t.startsWith(todayStr + "T00"));
+    if(displayStart < 0) displayStart = 24;
+
+    // 現在時刻に最も近い index
+    const now = new Date();
+    let currentIdx = displayStart, best = Infinity;
+    raw.times.forEach((t,i) => {
+      const diff = Math.abs(new Date(t) - now);
+      if(diff < best){ best = diff; currentIdx = i; }
+    });
+
+    D = {
+      ...raw, levels, dirs, displayStart, currentIdx,
+      windows: buildWindows(levels, dirs, displayStart),
+      segments: buildSegments(levels, dirs, displayStart)
+    };
+
+    renderNow();
+    renderChart();
+    renderWindows();
+    renderLog();
+  }catch(e){
+    const st = document.getElementById("statusLine");
+    st.className = "status alert";
+    st.textContent = "気圧データを取得できませんでした。通信環境を確認して「↻ 更新」を押してください。";
+  }
+}
+
+/* ================== UIイベント ================== */
+document.getElementById("reloadBtn").addEventListener("click", locateAndLoad);
+
+document.getElementById("toggleForm").addEventListener("click", () => {
+  document.getElementById("logForm").classList.add("open");
+  document.getElementById("toggleForm").style.display = "none";
+});
+
+document.querySelectorAll(".sev-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".sev-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    selectedSev = parseInt(btn.getAttribute("data-sev"));
+  });
+});
+
+document.getElementById("medToggle").addEventListener("click", () => {
+  medFlag = !medFlag;
+  document.getElementById("medToggle").classList.toggle("active", medFlag);
+});
+
+document.getElementById("saveLog").addEventListener("click", async () => {
+  if(!selectedSev){ alert("体調のレベルを選んでください"); return; }
+  const entry = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+    time: new Date().toISOString(),
+    sev: selectedSev,
+    med: medFlag,
+    memo: document.getElementById("memoInput").value.trim(),
+    pressure: D ? D.values[D.currentIdx] : null
+  };
+  const cur = await store.get();
+  cur.push(entry);
+  await store.set(cur);
+
+  selectedSev = null; medFlag = false;
+  document.querySelectorAll(".sev-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("medToggle").classList.remove("active");
+  document.getElementById("memoInput").value = "";
+  document.getElementById("logForm").classList.remove("open");
+  document.getElementById("toggleForm").style.display = "block";
+  renderLog();
+});
+
+locateAndLoad();
+</script>
+</body>
+</html>
