@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="気圧ログ">
 <meta name="theme-color" content="#F0F3F4">
-<title>気圧ログ</title>
+<title>気圧ログ — 広告なしの気圧予報</title>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -213,8 +213,9 @@
   </div>
 
   <footer>
-    <a href="https://open-meteo.com/" target="_blank" rel="noopener" style="color:inherit">Weather data by Open-Meteo.com</a>（CC BY 4.0）<br>
+    <a href="https://open-meteo.com/" target="_blank" rel="noopener" style="color:inherit">Weather data by Open-Meteo.com</a>（CC BY 4.0）／海面更正気圧を使用<br>
     本アプリは体調の目安を示すもので、医学的な診断を行うものではありません。<br>
+    ホーム画面に追加するとアプリのように使えます。
   </footer>
 </div>
 
@@ -289,6 +290,22 @@ function analyze(values){
     if(Math.abs(d6) >= TH.alert6)      mark(i-6, i, 2, Math.sign(d6));
     else if(Math.abs(d6) >= TH.warn6)  mark(i-6, i, 1, Math.sign(d6));
   }
+
+  /* 帯の中の小さな途切れ（2時間以下）を埋める：
+     変化の途中に「その1時間だけ動きが小さい時間」があると隙間ができ、
+     見た目は帯の中なのに判定が安定になるズレが生じるため */
+  for(let i=1;i<n-1;i++){
+    if(levels[i] === 0){
+      let j = i;
+      while(j < n && levels[j] === 0) j++;
+      const gap = j - i;
+      if(gap <= 2 && i > 0 && j < n && levels[i-1] > 0 && levels[j] > 0 && dirs[i-1] === dirs[j]){
+        const fillLv = Math.min(levels[i-1], levels[j]);
+        for(let k=i;k<j;k++){ levels[k] = fillLv; dirs[k] = dirs[i-1]; }
+      }
+      i = j;
+    }
+  }
   return {levels, dirs};
 }
 
@@ -351,6 +368,18 @@ function fmtPoint(iso){
 }
 
 /* ================== 描画：いまの気圧 ================== */
+/* 現在の域：現在時刻は最寄りの正時に丸められるため、
+   帯の縁にいるときの見た目とのズレを防ぐよう前後1時間も含めて判定 */
+function currentZone(){
+  if(!D) return {lv:null, dir:0};
+  const {levels, dirs, currentIdx:c} = D;
+  let lv = 0, dir = 0;
+  for(const j of [c, c-1, c+1]){
+    if(j >= 0 && j < levels.length && levels[j] > lv){ lv = levels[j]; dir = dirs[j]; }
+  }
+  return {lv, dir};
+}
+
 function renderNow(){
   const {values, codes, times, levels, dirs, currentIdx: c, windows} = D;
   const v = values[c];
@@ -366,7 +395,7 @@ function renderNow(){
     '<span class="mono">' + arrow + " 3時間で " + (d3>=0?"+":"") + d3.toFixed(1) + " hPa</span>";
 
   const st = document.getElementById("statusLine");
-  const lv = levels[c], dir = dirs[c];
+  const {lv, dir} = currentZone();
   if(lv === 2){
     st.className = "status alert";
     st.textContent = dir < 0
@@ -721,8 +750,8 @@ document.getElementById("saveLog").addEventListener("click", async () => {
     med: medFlag,
     memo: document.getElementById("memoInput").value.trim(),
     pressure: D ? D.values[D.currentIdx] : null,
-    zone: D ? D.levels[D.currentIdx] : null,   // 0安定 1注意 2警戒
-    zoneDir: D ? D.dirs[D.currentIdx] : 0      // -1低下 +1上昇
+    zone: currentZone().lv,        // 0安定 1注意 2警戒
+    zoneDir: currentZone().dir     // -1低下 +1上昇
   };
   const cur = await store.get();
   cur.push(entry);
