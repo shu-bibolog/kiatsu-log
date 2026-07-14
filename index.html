@@ -181,8 +181,8 @@
       <span style="color:var(--line)">↑ 上昇</span>
     </div>
     <div class="thresholds">
-      注意：3時間で±3hPa以上（または6時間で±5hPa以上）の変化<br>
-      警戒：3時間で±5hPa以上（または6時間で±8hPa以上）の変化
+      注意：3時間±3／6時間±4／12時間±5hPa以上の変化<br>
+      警戒：3時間±5／6時間±8／12時間±10hPa以上の変化
     </div>
   </div>
 
@@ -215,7 +215,7 @@
   <footer>
     <a href="https://open-meteo.com/" target="_blank" rel="noopener" style="color:inherit">Weather data by Open-Meteo.com</a>（CC BY 4.0）／海面更正気圧を使用<br>
     本アプリは体調の目安を示すもので、医学的な診断を行うものではありません。<br>
-    ホーム画面に追加するとアプリのように使えます。
+    ホーム画面に追加するとアプリのように使えます。<span class="mono">v1.7</span>
   </footer>
 </div>
 
@@ -223,8 +223,9 @@
 /* ================== 設定 ================== */
 const DEFAULT_LOC = { lat: 35.6896, lon: 139.6922, name: "東京都庁周辺" };
 
-/* 変化検知のしきい値（hPa） */
-const TH = { warn3: 3, alert3: 5, warn6: 5, alert6: 8 };
+/* 変化検知のしきい値（hPa）
+   3時間: 急な変化 / 6時間: 中程度 / 12時間: 緩やかだが累積の大きい変化 */
+const TH = { warn3: 3, alert3: 5, warn6: 4, alert6: 8, warn12: 5, alert12: 10 };
 
 /* WMOコード → 天気 */
 function wx(code){
@@ -289,6 +290,11 @@ function analyze(values){
     const d6 = values[i]-values[i-6];
     if(Math.abs(d6) >= TH.alert6)      mark(i-6, i, 2, Math.sign(d6));
     else if(Math.abs(d6) >= TH.warn6)  mark(i-6, i, 1, Math.sign(d6));
+  }
+  for(let i=12;i<n;i++){
+    const d12 = values[i]-values[i-12];
+    if(Math.abs(d12) >= TH.alert12)      mark(i-12, i, 2, Math.sign(d12));
+    else if(Math.abs(d12) >= TH.warn12)  mark(i-12, i, 1, Math.sign(d12));
   }
 
   /* 帯の中の小さな途切れ（2時間以下）を埋める：
